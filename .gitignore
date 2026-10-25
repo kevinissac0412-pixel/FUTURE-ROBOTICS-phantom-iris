@@ -33,3 +33,29 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+
+{
+  "test_id": "IRIS-RS-001",
+  "mode": "defensive_simulation",
+  "target": "local_sandbox_only",
+  "scenario": "unexpected_outbound_connection",
+  "simulate": {
+    "process_spawn": "unapproved_child_process",
+    "network_event": "outbound_connection_attempt",
+    "persistence": false,
+    "payload_execution": false
+  },
+  "expected_controls": [
+    "egress_policy_check",
+    "process_behavior_alert",
+    "network_event_correlation",
+    "immutable_audit_log",
+    "human_review"
+  ],
+  "pass_criteria": {
+    "unauthorized_connection_blocked": true,
+    "alert_generated": true,
+    "sensitive_data_exposed": false
+  }
+}
