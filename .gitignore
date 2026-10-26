@@ -59,3 +59,370 @@ google-services.json
     "sensitive_data_exposed": false
   }
 }
+
+
+
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+import zipfile, textwrap, os, json, shutil
+
+base = Path("/mnt/data/PHANTOM-IRIS-SECURITY")
+if base.exists():
+    shutil.rmtree(base)
+for d in ["certificate-trust", "endpoint-malware-analysis", "authorization-testing", "evidence-index", "templates", "docs", "scripts"]:
+    (base/d).mkdir(parents=True, exist_ok=True)
+
+files = {
+"README.md": """# PHANTOM IRIS — Security Research Blueprint
+
+**Status:** Proposed research architecture. This repository is a starter kit, not evidence that any incident, integration, or vulnerability has been verified.
+
+## Purpose
+Connect three independent security research modules through a common evidence index:
+1. `certificate-trust/` — TLS certificates, PKI and trust-store validation.
+2. `endpoint-malware-analysis/` — safe triage of suspicious files and endpoint observations.
+3. `authorization-testing/` — role, resource, consent, cache and revocation testing.
+
+## Architecture rules
+- Keep the three investigation tracks separate unless reproducible evidence links them.
+- Label each assertion `VERIFIED`, `REPORTED`, `HYPOTHESIS`, or `UNCONFIRMED`.
+- Preserve source, collection time, hash, analyst, method, and limitations for each artifact.
+- Never place secrets, personal data, live malware, private keys, or credentials in Git.
+- Run samples only in a disposable, isolated analysis environment with no bridged network.
+- Test only systems you own or have written authorization to assess.
+
+## Quick start
+1. Install Git and Python 3.10+.
+2. Extract this folder to a local workspace.
+3. Read `docs/architecture.md` and `docs/safety.md`.
+4. Copy `templates/evidence-record.md` for each evidence item.
+5. Run `python scripts/validate_evidence.py evidence-index/sample-evidence.json` to validate the example record.
+6. Initialize Git locally:
+   ```bash
+   git init
+   git add .
+   git commit -m "Initialize PHANTOM IRIS security research blueprint"
+   ```
+
+## Status labels
+- **VERIFIED:** independently reproducible or directly supported by a primary artifact/source.
+- **REPORTED:** a named source reports it; independent confirmation may be absent.
+- **HYPOTHESIS:** a testable explanation, not a finding.
+- **UNCONFIRMED:** insufficient evidence to classify more strongly.
+
+## Contents
+See each module's README. This project contains proposed controls and test plans only; it does not contain malware, exploit code, credentials, or claims of a confirmed compromise.
+""",
+"docs/architecture.md": """# Architecture and Evidence Flow
+
+## High-level flow
+
+```text
+                 PHANTOM IRIS — SHARED EVIDENCE INDEX
+              provenance • hashes • timestamps • confidence
+                                |
+             +------------------+------------------+
+             |                  |                  |
+   CERTIFICATE TRUST     ENDPOINT ANALYSIS   AUTHORIZATION TESTING
+   TLS / PKI / SAN       PE metadata / logs  RBAC / ownership / cache
+   chain / revocation    sandbox observations consent / token revocation
+             |                  |                  |
+             +------------------+------------------+
+                                |
+                  Correlation only when evidence
+                    supports a specific relationship
+                                |
+                   Findings • remediation • retest
+```
+
+## Module boundaries
+- Certificate trust tests validate identity and trust-chain behavior.
+- Endpoint analysis documents a sample's provenance and observed behavior; filenames and screenshots alone are not attribution.
+- Authorization tests evaluate permitted versus denied actions in a controlled application.
+- The evidence index stores links and metadata; it is not a central store for raw secrets or sensitive payloads.
+
+## Cross-module correlation criteria
+A relationship should not be asserted solely because artifacts appeared in the same social-media post or research feed. Require one or more concrete joins, such as:
+- a matching SHA-256 hash;
+- a timestamped, attributable network record;
+- a certificate fingerprint found in a captured TLS session;
+- a reproducible application log linking a principal, action and resource;
+- a documented chain of custody.
+
+Record alternative explanations and what evidence would falsify the hypothesis.
+""",
+"docs/safety.md": """# Safety and lawful research
+
+- Use only test systems you own or have explicit written authorization to assess.
+- Define scope, time window, allowed techniques, emergency contact and stop conditions before testing.
+- Use synthetic identities and synthetic data.
+- Do not access, download, modify or disclose third-party data.
+- Do not bypass paywalls, authentication, certificate validation or access controls outside a specifically authorized lab.
+- Analyze suspicious binaries in a disposable VM with snapshots, no shared folders/clipboard, no host credentials, and network disabled by default.
+- Never execute a suspicious sample on a daily-use device.
+- Do not commit samples, keys, tokens, passwords, personal data or confidential incident details to a public repository.
+- If real compromise is suspected, preserve evidence and contact the system owner / incident-response team.
+""",
+"certificate-trust/README.md": """# Certificate Trust
+
+**Status:** Proposed module; no certificate incident is confirmed by this repository.
+
+## Scope
+- Record certificate subject/SAN, issuer, serial number, validity, fingerprint and chain.
+- Validate hostname matching, expiration, issuer trust and revocation handling in a local lab.
+- Document vendor advisories as `REPORTED` until independently corroborated.
+
+## Safe test matrix
+1. Valid local test certificate for the expected hostname → accept.
+2. Certificate for a different hostname → reject.
+3. Expired test certificate → reject.
+4. Self-signed/untrusted issuer → reject unless explicitly configured in the test trust store.
+5. Test certificate marked revoked in the lab's supported revocation mechanism → verify expected client behavior.
+
+Never disable TLS verification as a workaround. Do not test against third-party domains without authorization.
+""",
+"endpoint-malware-analysis/README.md": """# Endpoint Malware Analysis
+
+**Status:** Proposed forensic workflow. Screenshots alone do not prove execution, data theft, attribution, or a connection to a certificate incident.
+
+## Intake
+- Assign evidence ID; record source, collection time (UTC), collector and legal authority.
+- Compute SHA-256 and preserve the original read-only.
+- Record file type, size, PE headers, signature status, imports, sections and strings.
+- Keep derived artifacts separate from originals.
+
+## Behavioral analysis
+- Use a disposable VM snapshot; disable network by default.
+- Observe process creation, file writes, persistence attempts and network attempts without allowing outbound traffic.
+- Record tool versions and timestamps; distinguish observed behavior from interpretation.
+- Revert the VM after collection.
+
+## Reporting
+State exactly what was observed, what was not observed, confidence, limitations and next steps. Do not infer country, operator or agency from a filename, code style, or social-media caption.
+""",
+"authorization-testing/README.md": """# Authorization Testing
+
+**Status:** Proposed test plan; code screenshots do not establish a vulnerability by themselves.
+
+## Focus
+- Role hierarchy and default-deny behavior.
+- Object ownership and tenant isolation.
+- Sensitive-resource authorization.
+- Permission-cache invalidation after role/ownership changes.
+- Token/session revocation.
+- AI-agent tool scopes and human approval for high-impact actions.
+
+## Safe test cases
+- Missing identity/action/resource → deny.
+- Unknown role or unknown action → deny.
+- User A requests User B's synthetic record → deny.
+- Role is revoked while a prior allow decision is cached → deny after the defined revocation bound.
+- Expired/revoked token → deny.
+- Agent requests a tool outside its allowlist → deny and log.
+- Authorized request → allow only the exact intended action.
+
+Use test accounts, synthetic records and a staging/local environment. Do not probe production or third-party services without written authorization.
+""",
+"evidence-index/README.md": """# Evidence Index
+
+The index links evidence records across modules without asserting that they share a cause.
+
+Each record should include:
+- unique ID and module;
+- status label (`VERIFIED`, `REPORTED`, `HYPOTHESIS`, `UNCONFIRMED`);
+- source URL or controlled-lab artifact path;
+- collection timestamp in UTC;
+- SHA-256 for files where applicable;
+- method, observer, limitations and next validation step.
+
+Use `sample-evidence.json` as a schema example. Replace placeholders with real records; never represent sample values as findings.
+""",
+"evidence-index/sample-evidence.json": json.dumps({
+  "evidence_id": "SAMPLE-CT-001",
+  "module": "certificate-trust",
+  "status": "HYPOTHESIS",
+  "title": "Example only: verify hostname mismatch rejection",
+  "source": "controlled local test lab; replace with actual test artifact",
+  "collected_at_utc": "2026-01-01T00:00:00Z",
+  "sha256": None,
+  "method": "Run the local certificate validation test matrix",
+  "observation": "Placeholder example; no test was run by this template",
+  "limitations": ["Sample template record, not a real finding"],
+  "next_step": "Run the test in an authorized lab and replace this record"
+}, indent=2) + "\n",
+"templates/evidence-record.md": """# Evidence Record
+
+- **Evidence ID:**
+- **Module:** certificate-trust / endpoint-malware-analysis / authorization-testing
+- **Status:** VERIFIED / REPORTED / HYPOTHESIS / UNCONFIRMED
+- **Title:**
+- **Source or artifact path:**
+- **Collected at (UTC):**
+- **Collector / tool versions:**
+- **SHA-256 (if applicable):**
+- **Authorization / scope reference:**
+- **Observed facts:**
+- **Interpretation (separate from facts):**
+- **Alternative explanations:**
+- **Limitations / missing evidence:**
+- **Next validation step:**
+- **Related evidence IDs (only with reason):**
+""",
+"templates/test-report.md": """# Controlled Test Report
+
+- **Test ID:**
+- **Module:**
+- **Date/time (UTC):**
+- **Authorized scope:**
+- **Environment / versions:**
+- **Objective:**
+- **Preconditions:**
+- **Steps performed:**
+- **Expected result:**
+- **Actual result:**
+- **Pass / Fail / Inconclusive:**
+- **Logs/artifacts and hashes:**
+- **Safety stop conditions triggered?:**
+- **Limitations:**
+- **Remediation:**
+- **Retest result:**
+""",
+"scripts/validate_evidence.py": """#!/usr/bin/env python3
+\"\"\"Minimal validator for PHANTOM IRIS evidence-record JSON files.\"\"\"
+import json
+import sys
+from pathlib import Path
+
+REQUIRED = {"evidence_id", "module", "status", "title", "source", "collected_at_utc", "method", "observation", "limitations", "next_step"}
+MODULES = {"certificate-trust", "endpoint-malware-analysis", "authorization-testing"}
+STATUSES = {"VERIFIED", "REPORTED", "HYPOTHESIS", "UNCONFIRMED"}
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python scripts/validate_evidence.py <record.json>")
+        return 2
+    path = Path(sys.argv[1])
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"ERROR: cannot read valid JSON: {exc}")
+        return 2
+    missing = sorted(REQUIRED - record.keys())
+    errors = []
+    if missing:
+        errors.append("missing required fields: " + ", ".join(missing))
+    if record.get("module") not in MODULES:
+        errors.append("module must be one of: " + ", ".join(sorted(MODULES)))
+    if record.get("status") not in STATUSES:
+        errors.append("status must be one of: " + ", ".join(sorted(STATUSES)))
+    if not errors:
+        print(f"OK: {record['evidence_id']} ({record['module']}, {record['status']})")
+        print("Note: schema validation does not verify the truth or provenance of a claim.")
+        return 0
+    for error in errors:
+        print("ERROR:", error)
+    return 1
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+}
+for rel, content in files.items():
+    p = base / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding="utf-8")
+
+# Create a polished architecture blueprint PNG using PIL.
+W, H = 1800, 1200
+img = Image.new("RGB", (W, H), "#07111f")
+draw = ImageDraw.Draw(img)
+font_paths = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"
+]
+bold_paths = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
+]
+def get_font(size, bold=False):
+    paths = bold_paths if bold else font_paths
+    for fp in paths:
+        if os.path.exists(fp):
+            return ImageFont.truetype(fp, size)
+    return ImageFont.load_default()
+title_font = get_font(46, True)
+subtitle_font = get_font(23)
+head_font = get_font(27, True)
+body_font = get_font(20)
+small_font = get_font(17)
+tiny_font = get_font(15)
+
+# Background grid
+for x in range(0, W, 60):
+    draw.line((x, 0, x, H), fill="#0c1c2d", width=1)
+for y in range(0, H, 60):
+    draw.line((0, y, W, y), fill="#0c1c2d", width=1)
+
+draw.text((70, 42), "PHANTOM IRIS", font=title_font, fill="#f3f8ff")
+draw.text((70, 100), "SECURITY RESEARCH BLUEPRINT", font=get_font(26, True), fill="#35d7e8")
+draw.text((70, 146), "Certificate trust  •  Endpoint malware analysis  •  Authorization testing", font=subtitle_font, fill="#b9c8d8")
+draw.rounded_rectangle((1390, 50, 1725, 120), radius=16, fill="#192c40", outline="#35d7e8", width=2)
+draw.text((1420, 69), "PROPOSED DESIGN", font=get_font(22, True), fill="#8feaf3")
+
+# Central evidence index
+cx0, cy0, cx1, cy1 = 560, 250, 1240, 385
+draw.rounded_rectangle((cx0, cy0, cx1, cy1), radius=22, fill="#172f4b", outline="#8cbbff", width=3)
+draw.text((cx0+35, cy0+22), "SHARED EVIDENCE INDEX", font=head_font, fill="#ffffff")
+draw.text((cx0+35, cy0+68), "Provenance • SHA-256 • timestamps • confidence • limitations", font=small_font, fill="#c9d9ed")
+
+# Three modules
+modules = [
+    (70, 500, 550, 815, "#163b58", "#64c9ff", "01  CERTIFICATE TRUST",
+     ["TLS / PKI / SAN", "Chain and issuer validation", "Validity and revocation checks", "Evidence: cert metadata + logs"]),
+    (660, 500, 1140, 815, "#3e2a22", "#ffb26e", "02  ENDPOINT ANALYSIS",
+     ["PE metadata and file hashes", "Static triage + isolated behavior", "Process / file / network observations", "Evidence: sample provenance + logs"]),
+    (1250, 500, 1730, 815, "#193a31", "#8ee0ad", "03  AUTHORIZATION TESTING",
+     ["RBAC and resource ownership", "Consent, cache and revocation", "Agent tool-scope enforcement", "Evidence: expected vs actual results"]),
+]
+for x0,y0,x1,y1,fill,accent,heading,lines in modules:
+    draw.rounded_rectangle((x0,y0,x1,y1), radius=22, fill=fill, outline=accent, width=3)
+    draw.text((x0+22,y0+22), heading, font=get_font(22, True), fill=accent)
+    yy = y0+78
+    for line in lines:
+        draw.ellipse((x0+24, yy+8, x0+36, yy+20), fill=accent)
+        draw.text((x0+50, yy), line, font=small_font, fill="#f0f5fb")
+        yy += 47
+
+# connectors
+for xmid in [310, 900, 1490]:
+    draw.line((xmid, 500, xmid, 440), fill="#91a8c0", width=3)
+    draw.line((xmid, 440, 900, 440), fill="#91a8c0", width=3)
+draw.line((900, 440, 900, 385), fill="#91a8c0", width=3)
+draw.polygon([(890,395),(910,395),(900,382)], fill="#91a8c0")
+
+# Bottom correlation and guardrails
+draw.rounded_rectangle((70, 875, 1730, 1015), radius=20, fill="#132238", outline="#607d9b", width=2)
+draw.text((100, 895), "CORRELATE ONLY WHEN EVIDENCE SUPPORTS A SPECIFIC LINK", font=get_font(24, True), fill="#ffffff")
+draw.text((100, 940), "Matching hashes • attributable network records • certificate fingerprints • reproducible application logs", font=body_font, fill="#c9d9ed")
+
+draw.rounded_rectangle((70, 1045, 1730, 1145), radius=18, fill="#2c2020", outline="#ff8c75", width=2)
+draw.text((100, 1062), "SAFETY & EVIDENCE RULES", font=get_font(22, True), fill="#ffb0a1")
+draw.text((100, 1101), "Authorized labs only • Synthetic data • No secrets in Git • Separate facts, reports and hypotheses", font=body_font, fill="#f4e5e2")
+
+diagram = Path("/mnt/data/PHANTOM-IRIS-SECURITY-blueprint.png")
+img.save(diagram)
+
+# Zip project folder, including blueprint in root folder
+(base / "docs" / "architecture-blueprint.png").write_bytes(diagram.read_bytes())
+zip_path = Path("/mnt/data/PHANTOM-IRIS-SECURITY-local-project.zip")
+if zip_path.exists():
+    zip_path.unlink()
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    for p in base.rglob("*"):
+        if p.is_file():
+            zf.write(p, p.relative_to(base.parent))
+print("Created:")
+print(zip_path)
+print(diagram)
+print(f"{sum(1 for p in base.rglob('*') if p.is_file())} project files")
+
